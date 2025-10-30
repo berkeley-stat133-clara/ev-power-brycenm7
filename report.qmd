@@ -3,32 +3,185 @@ title: "EV Power - Lab 4 Project Report"
 format: typst
 ---
 
-# Example Solution 1
-
 ## **Part 0: libraries**
+import stringr, tidyr, dplyr, sf, rnaturalearth, and ggplot2
 
 ```{r}
-
+#| echo: false
+#| include: false
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(sf)
+library(rnaturalearth)
+library(ggplot2)
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: Do states with cheaper energy have higher renewable energy usages? Do these states have higher ev registrations? Does energy cost correlate more with renewable energy usage or non renewable? Which states have the fastest growing renewable energy usage?
 
 ## **Part 2: Data Preparation and Cleaning**
 
-```{r}
+Turns csv files into tibbles. Standardizes column names and converts all states to upper case abbreviations. Cleans strings with excess characters (≈, \$, etc.).  Converts strings to numeric where applicable.
 
+```{r}
+#| echo: false
+#read csv files
+energy_price = tibble(read.csv("data/av-energy-price-2021-2023.csv"))
+ev_reg = tibble(read.csv("data/ev-registrations-by-state-2023.csv"))
+renew_use_2021 = tibble(read.csv("data/renew-use-2021.csv"))
+renew_use_2022 = tibble(read.csv("data/renew-use-2022.csv"))
+renew_use_2023 = tibble(read.csv("data/renew-use-2023.csv"))
+energy_use_2021 = tibble(read.csv("data/total-use-2021.csv"))
+energy_use_2022 = tibble(read.csv("data/total-use-2022.csv"))
+energy_use_2023 = tibble(read.csv("data/total-use-2023.csv"))
+
+#energry price cleaning
+colnames(energy_price) = "state"
+cleaned_energy_price = energy_price |>
+    slice(-(c(1, 2, 54))) |>
+    mutate(state = str_remove_all(state, "[\\$≈]")) |>
+    mutate(costs = str_sub(state, start = 4)) |>
+    mutate(costs = str_remove_all(costs, "[(a-z)(A-Z)]")) |>
+    mutate(state = str_sub(state, end = 2)) |>
+    mutate(costs = (str_extract_all(costs, "\\d*\\.\\d*"))) |>
+    rowwise() |>
+    mutate('2021' = costs[1], '2022' = costs[2], '2023' = costs[3]) |>
+    ungroup() |>
+    select(-(costs))
+
+#ev registrations cleaning
+colnames(ev_reg) = c("state", "count")
+
+cleaned_ev_reg = ev_reg|>
+    slice(-c(1, 2, 54)) |>
+    mutate(state = state.abb[match(state, state.name)]) |>
+    mutate(count = str_remove_all(count, "\\D"))
+cleaned_ev_reg$state[is.na(cleaned_ev_reg$state) == TRUE] = "DC"
+
+#renewable energy use cleaning
+
+colnames(renew_use_2021) = c("state", "source", "use")
+cleaned_renew_use_2021 = renew_use_2021 |> 
+    slice(-(256:260)) |>
+    mutate(use = str_remove_all(use, "\\D"))
+
+colnames(renew_use_2022) = c("state", "source", "use")
+cleaned_renew_use_2022 = renew_use_2022 |> 
+    slice(-(256:260)) |>
+    mutate(use = str_remove_all(use, "\\D"))
+
+colnames(renew_use_2023) = c("state", "source", "use")
+cleaned_renew_use_2023 = renew_use_2023 |> 
+    slice(-(256:260)) |>
+    mutate(use = str_remove_all(use, "\\D")) |>
+    mutate(state = str_to_upper(state))
+
+#total use cleaning
+cleaned_energy_use_2021 = energy_use_2021 |>
+    pivot_longer(cols = -1, names_to = "state", values_to = "use") |>
+    pivot_wider(names_from = Energy_Source, values_from = use, id_cols = state) |>
+    slice(-52)
+
+colnames(cleaned_energy_use_2021) = c("state", "coal", "natural_gas", "petroleum", "nuclear", "renewable")
+
+cleaned_energy_use_2022 = energy_use_2022 |>
+    pivot_longer(cols = -1, names_to = "state", values_to = "use") |>
+    pivot_wider(names_from = Energy_Source, values_from = use, id_cols = state) |>
+    slice(-52)
+
+colnames(cleaned_energy_use_2022) = c("state", "coal", "natural_gas", "petroleum", "nuclear", "renewable")
+
+cleaned_energy_use_2023 = energy_use_2023 |>
+    pivot_longer(cols = -1, names_to = "state", values_to = "use") |>
+    pivot_wider(names_from = Energy_Source, values_from = use, id_cols = state) |>
+    slice(-52)
+
+colnames(cleaned_energy_use_2023) = c("state", "coal", "natural_gas", "petroleum", "nuclear", "renewable")
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
+I chose to join the cost of energy with both the usage of renewable and non renewable energy sources for each year. Using these tables, one could easily plot energy costs vs the usage of any kind of energy, and see if they are correlated.
+
+I also chose to join the ev registration table with the energy cost table to easily see the number of ev registrations compared to the cost of power, by state.
+
+I also joined all three total use tables and selected the renewable energy totals to see the difference in renewable energy use by state over time.
+
 ```{r}
+#| echo: false
+#2021_data
+data_2021 = full_join(cleaned_energy_price, cleaned_renew_use_2021, by = join_by(state == state)) |>
+    select(-(3:4)) |>
+    full_join(cleaned_energy_use_2021, by = join_by(state == state))
+data_2021 = data_2021 |>
+    pivot_wider(names_from = source, values_from = use)
+colnames(data_2021) = c("state", "energy_cost", "coal", "natural_gas", "petroleum", "nuclear", "renewable", "biomass", "geothermal", "hydropower", "solar", "wind", "NA")
+
+#2022_data
+data_2022 = full_join(cleaned_energy_price, cleaned_renew_use_2022, by = join_by(state == state)) |>
+    select(-c(2, 4)) |>
+    full_join(cleaned_energy_use_2022, by = join_by(state == state))
+data_2022 = data_2022 |>
+    pivot_wider(names_from = source, values_from = use)
+colnames(data_2022) = c("state", "energy_cost", "coal", "natural_gas", "petroleum", "nuclear", "renewable", "biomass", "geothermal", "hydropower", "solar", "wind", "NA")
+
+#2023_data
+data_2023 = full_join(cleaned_energy_price, cleaned_renew_use_2023, by = join_by(state == state)) |>
+    select(-(2:3)) |>
+    full_join(cleaned_energy_use_2023, by = join_by(state == state))
+data_2023 = data_2023 |>
+    pivot_wider(names_from = source, values_from = use)
+colnames(data_2023) = c("state", "energy_cost", "coal", "natural_gas", "petroleum", "nuclear", "renewable", "biomass", "geothermal", "hydropower", "solar", "wind", "NA")
+
+#ev reg and energy cost
+ev_reg_and_cost = left_join(cleaned_energy_price, cleaned_ev_reg, by = join_by(state == state))
+
+#renewable energy increase by state
+renewable_diff = left_join(cleaned_energy_use_2021, cleaned_energy_use_2022, by = join_by(state == state))
+
+renewable_diff = renewable_diff |>
+    slice(-52) |>
+    select(state, '2021' = renewable.x, '2022' = renewable.y) |>
+    left_join(cleaned_energy_use_2023, by = join_by(state == state)) |>
+    select(state, '2021', '2022', '2023' = renewable)
+
+print(data_2021, n = 10)
+print(ev_reg_and_cost, n = 10)
+print(renewable_diff, n = 10)
 
 ```
 
 ## **Part 4: Mapping Visualization**
 
-```{r}
+Creates a map that displays the average difference in renewable energy usage. Uses a diverging scale to visualize states with increasing renewable energy usage versus decreasing.
 
+```{r}
+#| echo: false
+#map of states and renewable energy usage
+
+#create state geometry
+us_states <- ne_states(country = "united states of america", returnclass = "sf")
+
+#calculate average difference across 2021, 2022, 2023 and change states from abb to names to match geometry
+average_diffs = renewable_diff |>
+    mutate(average_growth = (((renewable_diff$`2023` - renewable_diff$`2022`) + (renewable_diff$`2022` - renewable_diff$`2021`)) / 2)) |>
+    mutate(state = state.name[match(state, state.abb)]) |>
+    mutate(state = ifelse(is.na(state) & state == "DC", "District of Columbia", state))
+    
+us_joined = us_states |>
+  left_join(average_diffs, by = join_by(name == state))
+
+ggplot(us_joined) +
+    geom_sf(aes(fill = average_growth), color = "white") +
+    scale_fill_gradient2(name = "Average growth per year", low = "red",  mid = "grey", high = "blue", midpoint = 0, na.value = "grey90") +
+    labs(title = "Average growth in renewable energy usage (2021-2023)") +
+    coord_sf(xlim = c(-125, -66), ylim = c(24, 50), expand = FALSE) +
+    theme_minimal()
+    
 ```
+
+## **Analysis**
+
+This map shows that California had by far the highest average growth in renewable energy usage per year. Most states did not have a significant increase in renewable energy usage. Washington, Tennessee, Alabama, Florida, and North Carolina showed the largest decrease in renewable energy usage.
